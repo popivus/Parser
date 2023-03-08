@@ -28,7 +28,7 @@ namespace Parser
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.Message, "Ошибка");
+                Log.Add(ex.Message);
                 return null;
             }
             finally
@@ -51,7 +51,7 @@ namespace Parser
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.Message, "Ошибка");
+                Log.Add(ex.Message);
                 return null;
             }
             finally

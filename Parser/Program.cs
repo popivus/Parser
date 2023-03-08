@@ -16,38 +16,91 @@ namespace Parser
         private static string URL = "https://www.lesegais.ru/open-area/deal";
         private static int delayMilliseconds = 600000;
         private static int delayMillisecondsError = 60000;
+
+        private static int dealsPerRequest = 20;
+        private static int requestDelayMilliseconds = 200;
         static void Main(string[] args)
         {
             while (true)
             {
                 int dealsCount = GetDealsCount();
-                WoodDeal[] woodDeals = GetWoodDeals(dealsCount);
-                if (woodDeals.Length == 0)
-                {
-                    Thread.Sleep(delayMillisecondsError);
-                    continue;
-                }
-
-                string query = "";
+                int iterations = dealsCount / dealsPerRequest;
                 List<WoodDeal> currentWoodDeals = GetDealsFromDB();
-                foreach (WoodDeal deal in woodDeals)
+
+                Log.Add("=====Start parsing=====");
+                Log.Add($"All deals count: {dealsCount}");
+                Log.Add($"Iterations: {iterations}");
+
+                for (int i = 0; i <= iterations; i++)
                 {
-                    if (currentWoodDeals.Exists(d => d.dealNumber == deal.dealNumber))
-                        query += $"UPDATE [dbo].[WoodDeal] SET [SellerName] = '{deal.sellerName}', [SellerInn] = '{deal.sellerInn}', [BuyerName] = '{deal.buyerName}', [BuyerInn] = '{deal.buyerInn}', [WoodVolumeBuyer] = {deal.woodVolumeBuyer.ToString().Replace(',','.')}, [WoodVolumeSeller] = {deal.woodVolumeSeller.ToString().Replace(',', '.')}, [DealDate] = '{deal.dealDate}', [__typename] = '{deal.__typename}' WHERE [DealNumber] = '{deal.dealNumber}'\n";
-                    else
-                        query += $"INSERT INTO [dbo].[WoodDeal] ([DealNumber], [SellerName], [SellerInn], [BuyerName], [BuyerInn], [WoodVolumeBuyer], [WoodVolumeSeller], [DealDate], [__typename]) VALUES ('{deal.dealNumber}', '{deal.sellerName.Replace('\'','"')}', '{deal.sellerInn}', '{deal.buyerName.Replace('\'', '"')}', '{deal.buyerInn}', {deal.woodVolumeBuyer.ToString().Replace(',', '.')},  {deal.woodVolumeSeller.ToString().Replace(',', '.')}, '{deal.dealDate}', '{deal.__typename}')\n";
+                    int dealStartNumber = i * dealsPerRequest;
+                    int dealsCountNow = dealsPerRequest;
 
-                    if (query.Split('\n').Length >= 1000)
+                    if (i == iterations)
+                        dealsCountNow = dealsCount - dealStartNumber;
+
+                    WoodDeal[] woodDeals = GetWoodDeals(dealsCountNow, i);
+                    if (woodDeals.Length == 0)
                     {
-                        DBHelper.CmdScalar(query);
-                        query = "";
-
-                        Console.WriteLine("=====Part inserted=====");
+                        Thread.Sleep(delayMillisecondsError);
+                        continue;
                     }
-                }
 
-                DBHelper.CmdScalar(query);
-                Console.WriteLine("=====Done=====");
+                    string query = "";
+                    foreach (WoodDeal deal in woodDeals)
+                    {
+                        if (string.IsNullOrWhiteSpace(deal.dealNumber) ||
+                            string.IsNullOrWhiteSpace(deal.sellerName) ||
+                            string.IsNullOrWhiteSpace(deal.buyerName) ||
+                            string.IsNullOrWhiteSpace(deal.dealDate))
+                            continue;
+
+                        if (deal.buyerInn.Length != 12 &&
+                            deal.buyerInn.Length != 10 &&
+                            deal.buyerInn.Length != 0)
+                            continue;
+
+                        if (deal.sellerInn.Length != 12 &&
+                            deal.sellerInn.Length != 10 &&
+                            deal.sellerInn.Length != 0)
+                            continue;
+
+                        foreach (char c in deal.buyerInn)
+                            if (!char.IsDigit(c)) continue;
+
+                        foreach (char c in deal.sellerInn)
+                            if (!char.IsDigit(c)) continue;
+
+                        if (!DateTime.TryParse(deal.dealDate, out DateTime testDateTime))
+                            continue;
+
+                        var current = currentWoodDeals.FirstOrDefault(d => d.dealNumber == deal.dealNumber);
+                        if (current == null)
+                        {
+                            query += $"INSERT INTO [dbo].[WoodDeal] ([DealNumber], [SellerName], [SellerInn], [BuyerName], [BuyerInn], [WoodVolumeBuyer], [WoodVolumeSeller], [DealDate], [__typename]) VALUES (N'{deal.dealNumber}', N'{deal.sellerName.Replace('\'', '"')}', N'{deal.sellerInn}', N'{deal.buyerName.Replace('\'', '"')}', N'{deal.buyerInn}', {deal.woodVolumeBuyer.ToString().Replace(',', '.')},  {deal.woodVolumeSeller.ToString().Replace(',', '.')}, N'{deal.dealDate}', N'{deal.__typename}')\n";
+                        }
+                        else
+                        {
+                            if (current.sellerName != deal.sellerName ||
+                                current.sellerInn != deal.sellerInn ||
+                                current.buyerName != deal.buyerName ||
+                                current.buyerInn != deal.buyerInn ||
+                                current.woodVolumeBuyer != deal.woodVolumeBuyer ||
+                                current.woodVolumeSeller != deal.woodVolumeSeller ||
+                                current.dealDate != deal.dealDate ||
+                                current.__typename != deal.__typename)
+                                query += $"UPDATE [dbo].[WoodDeal] SET [SellerName] = '{deal.sellerName}', [SellerInn] = N'{deal.sellerInn}', [BuyerName] = N'{deal.buyerName}', [BuyerInn] = N'{deal.buyerInn}', [WoodVolumeBuyer] = {deal.woodVolumeBuyer.ToString().Replace(',', '.')}, [WoodVolumeSeller] = {deal.woodVolumeSeller.ToString().Replace(',', '.')}, [DealDate] = N'{deal.dealDate}', [__typename] = N'{deal.__typename}' WHERE [DealNumber] = N'{deal.dealNumber}'\n";
+                        }
+
+                    }
+
+                    if (query != "") 
+                        DBHelper.CmdScalar(query);
+
+                    Log.Add($"=====Part {i + 1} inserted=====");
+                    Thread.Sleep(requestDelayMilliseconds);
+                }
+                Log.Add("=====Done=====");
                 Thread.Sleep(delayMilliseconds);
             }
         }
@@ -86,9 +139,9 @@ namespace Parser
             return rootobject.data.searchReportWoodDeal.total;
         }
 
-        private static WoodDeal[] GetWoodDeals(int count)
+        private static WoodDeal[] GetWoodDeals(int count, int startNumber)
         {
-            string body = "{\"query\":\"query SearchReportWoodDeal($size: Int!, $number: Int!, $filter: Filter, $orders: [Order!]) {\\n  searchReportWoodDeal(filter: $filter, pageable: {number: $number, size: $size}, orders: $orders) {\\n    content {\\n      sellerName\\n      sellerInn\\n      buyerName\\n      buyerInn\\n      woodVolumeBuyer\\n      woodVolumeSeller\\n      dealDate\\n      dealNumber\\n      __typename\\n    }\\n    __typename\\n  }\\n}\\n\",\"variables\":{\"size\": " + count.ToString() + ",\"number\":0,\"filter\":null,\"orders\":null},\"operationName\":\"SearchReportWoodDeal\"}";
+            string body = "{\"query\":\"query SearchReportWoodDeal($size: Int!, $number: Int!, $filter: Filter, $orders: [Order!]) {\\n  searchReportWoodDeal(filter: $filter, pageable: {number: $number, size: $size}, orders: $orders) {\\n    content {\\n      sellerName\\n      sellerInn\\n      buyerName\\n      buyerInn\\n      woodVolumeBuyer\\n      woodVolumeSeller\\n      dealDate\\n      dealNumber\\n      __typename\\n    }\\n    __typename\\n  }\\n}\\n\",\"variables\":{\"size\": " + count.ToString() + ",\"number\":" + startNumber.ToString() + ",\"filter\":null,\"orders\":null},\"operationName\":\"SearchReportWoodDeal\"}";
 
             Rootobject rootobject = GetData(body);
             if (rootobject.data == null)
@@ -130,7 +183,7 @@ namespace Parser
             }
             catch (Exception err)
             {
-                Console.WriteLine(err.Message);
+                Log.Add(err.Message);
                 return null;
             }
         }
