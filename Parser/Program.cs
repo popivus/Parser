@@ -49,29 +49,7 @@ namespace Parser
                     string query = "";
                     foreach (WoodDeal deal in woodDeals)
                     {
-                        if (string.IsNullOrWhiteSpace(deal.dealNumber) ||
-                            string.IsNullOrWhiteSpace(deal.sellerName) ||
-                            string.IsNullOrWhiteSpace(deal.buyerName) ||
-                            string.IsNullOrWhiteSpace(deal.dealDate))
-                            continue;
-
-                        if (deal.buyerInn.Length != 12 &&
-                            deal.buyerInn.Length != 10 &&
-                            deal.buyerInn.Length != 0)
-                            continue;
-
-                        if (deal.sellerInn.Length != 12 &&
-                            deal.sellerInn.Length != 10 &&
-                            deal.sellerInn.Length != 0)
-                            continue;
-
-                        foreach (char c in deal.buyerInn)
-                            if (!char.IsDigit(c)) continue;
-
-                        foreach (char c in deal.sellerInn)
-                            if (!char.IsDigit(c)) continue;
-
-                        if (!DateTime.TryParse(deal.dealDate, out DateTime testDateTime))
+                        if (!IsValidDeal(deal))
                             continue;
 
                         var current = currentWoodDeals.FirstOrDefault(d => d.dealNumber == deal.dealNumber);
@@ -103,6 +81,36 @@ namespace Parser
                 Log.Add("=====Done=====");
                 Thread.Sleep(delayMilliseconds);
             }
+        }
+
+        private static bool IsValidDeal(WoodDeal deal)
+        {
+            if (string.IsNullOrWhiteSpace(deal.dealNumber) ||
+                string.IsNullOrWhiteSpace(deal.sellerName) ||
+                string.IsNullOrWhiteSpace(deal.buyerName) ||
+                string.IsNullOrWhiteSpace(deal.dealDate))
+                return false;
+
+            if (deal.buyerInn.Length != 12 &&
+                deal.buyerInn.Length != 10 &&
+                deal.buyerInn.Length != 0)
+                return false;
+
+            if (deal.sellerInn.Length != 12 &&
+                deal.sellerInn.Length != 10 &&
+                deal.sellerInn.Length != 0)
+                return false;
+
+            foreach (char c in deal.buyerInn)
+                if (!char.IsDigit(c)) return false;
+
+            foreach (char c in deal.sellerInn)
+                if (!char.IsDigit(c)) return false;
+
+            if (!DateTime.TryParse(deal.dealDate, out DateTime testDateTime))
+                return false;
+
+            return true;
         }
 
         private static List<WoodDeal> GetDealsFromDB()
